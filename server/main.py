@@ -120,6 +120,25 @@ class CreatePurchaseOrderRequest(BaseModel):
     expected_delivery_date: str
     notes: Optional[str] = None
 
+class Task(BaseModel):
+    id: int
+    title: str
+    priority: str
+    # camelCase to match the field the Vue client sends/expects
+    dueDate: str
+    status: str
+
+class CreateTaskRequest(BaseModel):
+    title: str
+    priority: str
+    dueDate: str
+
+# In-memory store for user-created tasks (demo only; resets on server restart).
+# The frontend ships 4 mock tasks with ids 1-4; API-created tasks start at 1000
+# so their ids never collide with those mock tasks.
+api_tasks: List[dict] = []
+next_task_id = 1000
+
 # API endpoints
 @app.get("/")
 def root():
@@ -226,6 +245,44 @@ def get_category_spending():
 def get_recent_transactions():
     """Get recent transactions"""
     return recent_transactions
+
+@app.get("/api/tasks", response_model=List[Task])
+def get_tasks():
+    """Get user-created tasks (shown alongside the frontend's mock tasks)."""
+    return api_tasks
+
+@app.post("/api/tasks", response_model=Task)
+def create_task(task: CreateTaskRequest):
+    """Create a new task with an auto-assigned id and 'pending' status."""
+    global next_task_id
+    new_task = {
+        "id": next_task_id,
+        "title": task.title,
+        "priority": task.priority,
+        "dueDate": task.dueDate,
+        "status": "pending"
+    }
+    next_task_id += 1
+    api_tasks.append(new_task)
+    return new_task
+
+@app.delete("/api/tasks/{task_id}")
+def delete_task(task_id: int):
+    """Delete a user-created task."""
+    task = next((t for t in api_tasks if t["id"] == task_id), None)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    api_tasks.remove(task)
+    return {"success": True}
+
+@app.patch("/api/tasks/{task_id}", response_model=Task)
+def toggle_task(task_id: int):
+    """Toggle a task between 'pending' and 'completed'."""
+    task = next((t for t in api_tasks if t["id"] == task_id), None)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    task["status"] = "completed" if task["status"] == "pending" else "pending"
+    return task
 
 @app.get("/api/reports/quarterly")
 def get_quarterly_reports():
